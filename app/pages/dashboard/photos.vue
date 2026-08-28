@@ -2507,7 +2507,7 @@ onUnmounted(() => {
           <div
             class="pointer-events-none absolute -left-32 -top-24 h-72 w-[18rem] rounded-full bg-primary-400/20 blur-3xl dark:bg-primary-500/20"
           />
-          <div class="relative flex flex-col gap-6 p-5 sm:p-8">
+          <div class="relative flex flex-col gap-6 p-5 sm:p-4">
             <div
               class="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between"
             >
@@ -3120,7 +3120,7 @@ onUnmounted(() => {
 
         <UModal v-model:open="isEditModalOpen">
           <template #content>
-            <div class="p-6 space-y-6">
+            <div class="p-6 space-y-6 overflow-y-auto">
               <div class="space-y-1">
                 <h2
                   class="text-lg font-semibold text-neutral-800 dark:text-neutral-100"
