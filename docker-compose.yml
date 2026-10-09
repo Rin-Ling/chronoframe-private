@@ -1,6 +1,7 @@
 services:
   chronoframe:
-    image: kenv1e/chronoframe-private:latest
+    # image: kenv1e/chronoframe-private:latest
+    image: chronoframe:latest
     container_name: chronoframe
     restart: unless-stopped
     ports:
