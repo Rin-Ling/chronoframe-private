@@ -301,11 +301,6 @@ const downloadOriginalImage = async () => {
   }
 }
 
-// Check if native share is available
-const canNativeShare = computed(() => {
-  return typeof window !== 'undefined' && navigator.share
-})
-
 // Social media platforms data
 const socialPlatforms = computed(() => [
   {
@@ -416,7 +411,6 @@ defineShortcuts({
           >
             <!-- Native Share (Mobile) -->
             <div
-              v-if="canNativeShare"
               class="mb-4 flex items-center gap-2"
             >
               <UButton

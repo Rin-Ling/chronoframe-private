@@ -269,9 +269,9 @@ export class AMapGeocodingProvider implements GeocodingProvider {
 
           const country = addressComponent.country || '中国'
           const city =
+            addressComponent.district ||
             addressComponent.city ||
-            addressComponent.province ||
-            addressComponent.district
+            addressComponent.province
 
           const locationName = regeocode.formatted_address
 
