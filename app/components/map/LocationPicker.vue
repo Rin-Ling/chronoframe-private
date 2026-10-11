@@ -23,6 +23,9 @@ const emit = defineEmits<{
 
 const mapInstance = ref<MapInstance | null>(null)
 const markerCoordinates = ref<[number, number] | null>(null)
+const searchKeyword = ref('')
+const searchTips = ref<any[]>([])
+const isSearching = ref(false)
 const { locale } = useI18n({ useScope: 'global' })
 
 const mapConfig = computed(() => {
@@ -33,6 +36,20 @@ const mapConfig = computed(() => {
 const provider = computed(() => mapConfig.value.provider || 'maplibre')
 
 let clickHandler: ((event: any) => void) | null = null
+let autocomplete: any
+let placeSearch: any
+let autocompleteReady: Promise<void> | undefined
+let searchRequestId = 0
+
+const searchPlaceholder = computed(() =>
+  locale.value.startsWith('zh') ? '搜索地区或地点' : 'Search area or place',
+)
+const moreResultsLabel = computed(() =>
+  locale.value.startsWith('zh') ? '查看更多搜索结果' : 'View more results',
+)
+
+const tipDescription = (tip: any) =>
+  [tip?.district, tip?.address, tip?.type].filter(Boolean).join(' · ')
 
 const syncFromProps = (value: { latitude: number; longitude: number } | null) => {
   if (value) {
@@ -134,6 +151,88 @@ const onMapLoad = (map: MapInstance) => {
     clickHandler = (event: any) => handleMapClick(event)
     anyMap.on('click', clickHandler)
   }
+
+  if (provider.value === 'amap' && window.AMap?.plugin) {
+    autocompleteReady = new Promise((resolve) => {
+      window.AMap.plugin(['AMap.AutoComplete', 'AMap.PlaceSearch'], () => {
+        autocomplete = new window.AMap.AutoComplete({ city: '全国' })
+        placeSearch = new window.AMap.PlaceSearch({ city: '全国', pageSize: 8 })
+        resolve()
+        if (searchKeyword.value.trim()) searchPlaces()
+      })
+    })
+  }
+}
+
+const searchPlaces = async () => {
+  searchTips.value = []
+  const keyword = searchKeyword.value.trim()
+  if (provider.value !== 'amap' || !keyword) return
+
+  const requestId = ++searchRequestId
+  isSearching.value = true
+  try {
+    const result = await $fetch<{ tips?: any[] }>('/api/location/search', {
+      query: { keywords: keyword },
+    })
+    if (requestId !== searchRequestId) return
+    if (result.tips?.length) {
+      searchTips.value = result.tips
+      isSearching.value = false
+      return
+    }
+  } catch {
+    // Fall back to the browser plugin when the server search is unavailable.
+  }
+
+  if (autocompleteReady) await autocompleteReady
+  if (!autocomplete) {
+    isSearching.value = false
+    return
+  }
+
+  autocomplete.search(keyword, (status: string, result: any) => {
+    if (requestId !== searchRequestId) return
+    const tips = status === 'complete' ? (result?.tips ?? []) : []
+    if (tips.length) {
+      searchTips.value = tips.slice(0, 8)
+      isSearching.value = false
+      return
+    }
+
+    placeSearch?.search(keyword, (placeStatus: string, placeResult: any) => {
+      isSearching.value = false
+      if (placeStatus !== 'complete') return
+      searchTips.value = (placeResult?.poiList?.pois ?? []).slice(0, 8)
+    })
+  })
+}
+
+const selectSearchTip = (tip: any) => {
+  const location = tip?.location
+  const coordinates =
+    typeof location === 'string'
+      ? location.split(',').map(Number)
+      : undefined
+  const longitude =
+    typeof location?.getLng === 'function'
+      ? location.getLng()
+      : typeof location?.lng === 'number'
+        ? location.lng
+        : coordinates?.[0]
+  const latitude =
+    typeof location?.getLat === 'function'
+      ? location.getLat()
+      : typeof location?.lat === 'number'
+        ? location.lat
+        : coordinates?.[1]
+  if (typeof longitude !== 'number' || typeof latitude !== 'number') return
+
+  searchKeyword.value = tip.name || tip.address || ''
+  searchTips.value = []
+  updateValue(latitude, longitude)
+  const anyMap: any = mapInstance.value
+  anyMap?.setZoomAndCenter?.(Math.max(props.zoom ?? 4, 15), [longitude, latitude], true, 0)
 }
 
 onBeforeUnmount(() => {
@@ -143,11 +242,67 @@ onBeforeUnmount(() => {
       anyMap.off('click', clickHandler)
     }
   }
+  autocomplete = undefined
 })
 </script>
 
 <template>
   <div :class="['relative w-full h-64 rounded-xl overflow-hidden', $props.class]">
+    <div
+      v-if="provider === 'amap'"
+      class="absolute inset-x-3 top-3 z-10"
+    >
+      <form
+        class="flex gap-2"
+        @submit.prevent="searchPlaces"
+      >
+        <input
+          v-model="searchKeyword"
+          type="search"
+          :placeholder="searchPlaceholder"
+          class="min-w-0 flex-1 rounded-lg border border-neutral-200/80 bg-white/95 px-3 py-2 text-sm text-neutral-900 shadow-lg outline-none ring-primary/40 placeholder:text-neutral-400 focus:ring-2 dark:border-neutral-700 dark:bg-neutral-900/95 dark:text-neutral-100"
+          @input="searchPlaces"
+        />
+        <button
+          type="submit"
+          aria-label="search"
+          class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary text-white shadow-lg disabled:opacity-50"
+          :disabled="isSearching || !searchKeyword.trim()"
+        >
+          <Icon v-if="!isSearching" name="lucide:search" class="size-5" />
+          <span v-else class="text-xs">...</span>
+        </button>
+      </form>
+      <div
+        v-if="searchTips.length"
+        class="mt-1 overflow-hidden rounded-lg border border-neutral-200/80 bg-white/95 shadow-lg dark:border-neutral-700 dark:bg-neutral-900/95"
+      >
+        <button
+          v-for="tip in searchTips"
+          :key="`${tip.id || tip.name}-${tip.address || ''}`"
+          type="button"
+          class="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+          @click="selectSearchTip(tip)"
+        >
+          <Icon
+            :name="tip?.type ? 'lucide:search' : 'lucide:map-pin'"
+            class="size-5 shrink-0 text-neutral-900 dark:text-neutral-100"
+          />
+          <span class="min-w-0 flex-1">
+            <span class="block truncate text-base text-neutral-900 dark:text-neutral-100">{{ tip.name }}</span>
+            <span v-if="tipDescription(tip)" class="block truncate text-sm text-neutral-500">{{ tipDescription(tip) }}</span>
+          </span>
+          <Icon name="lucide:corner-up-right" class="size-5 shrink-0 text-neutral-900 dark:text-neutral-100" />
+        </button>
+        <button
+          type="button"
+          class="w-full border-t border-neutral-100 px-3 py-2.5 text-center text-sm text-neutral-500 hover:bg-neutral-100 dark:border-neutral-800 dark:hover:bg-neutral-800"
+          @click="searchPlaces"
+        >
+          {{ moreResultsLabel }}
+        </button>
+      </div>
+    </div>
     <MapProvider
       class="w-full h-full"
       :map-id="'photo-location-picker'"

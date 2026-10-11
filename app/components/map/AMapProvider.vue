@@ -52,7 +52,9 @@ const loadAMapScript = (): Promise<void> => {
     }
 
     const script = document.createElement('script')
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${amapKey.value}`
+    script.src =
+      `https://webapi.amap.com/maps?v=2.0&key=${amapKey.value}` +
+      '&plugin=AMap.AutoComplete,AMap.PlaceSearch'
     script.onload = () => resolve()
     script.onerror = () => reject(new Error('Failed to load AMap script'))
     document.head.appendChild(script)
